@@ -1,0 +1,30 @@
+@url = http://localhost:3000
+
+# GET /
+GET {{url}}/blog HTTP/1.1
+
+### POST /blog
+POST {{url}}/blog HTTP/1.1
+Content-Type: application/json
+
+{
+  "title": "first blog",
+  "content": "첫 블로그",
+  "name": "이름"
+}
+
+### PUT /blog
+PUT {{url}}/blog/65974d9a5c679d83c68fc07f HTTP/1.1
+Content-Type: application/json
+
+{
+  "title": "first blog modify",
+  "content": "첫 블로그 수정",
+  "name": "수정 이름"
+}
+
+### DELETE /blog/:id
+DELETE {{url}}/blog/65974d9a5c679d83c68fc07f HTTP/1.1
+
+### GET /blog/:id
+GET {{url}}/blog/65974d9a5c679d83c68fc07f HTTP/1.1
