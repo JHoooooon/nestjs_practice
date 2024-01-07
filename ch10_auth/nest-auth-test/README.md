@@ -950,3 +950,679 @@ export class AuthGuard implements CanActivate {
 
 ## Authorization
 
+해당 내용은 [NestJS Authorization](https://docs.nestjs.com/security/authorization) 의 내용을 정리한것이다.
+
+`Authorization` 은 진행 여부를 가리킨다.  
+이는 어떤 유저가 무엇을 할수 있는지를 결정한다.
+
+예를 들어, 관리자 유저는 포스트의 생성, 수정, 삭제를 허용한다.
+반면에 관리자가 아닌 유저는 포스트를 오직 읽기 권한만 부여받는다.
+
+`Authorization` 은 `Authentication` 으로 부터 직교(`orthogonal`)하고, 독립적이다. 그러나 `Authorization` 은 `Authentication` 매커니즘이 필요하다.
+
+> 여기서 `orthogonal` 이라는 의미가 쓰이는데, 간단하게 `직교` 라는 뜻이다.
+> 수학에서 말하는 `직교` 는 두 선분이 `90도` 를 이룰때, `직교` 한다 라는  
+> 표현을 쓴다. 이는 두 선분의 길이가 달라 길든 짧든, 항상 `90도` 를  
+> 유지하므로, `서로 독립적이며 연관되어 있다는` 의미로도 쓰인다.
+>
+> 현재 `Authorization` 은 권한부여를 담당하여 `Authentication` 과는  
+> 독립적으로 사용되지만, `Authentication` 과 연관되어 있다는 의미로  
+> 사용되는 단어인듯 하다.
+
+`Authorizaion` 을 처리하는 많이 다양한 접근방식과 전략이 있다
+이 프로젝트의 접근방식은 특정 `Application` 의 요구사항에 따라 다르다
+이 챕터에서는 `Authorizaion` 의 약간의 접근방식을 제공하며, 다양한 요구사항에  
+조정할 수 있다.
+
+### Basic RBAC Implementation
+
+`Role-based access control`(**RBAC**) 은 규칙과 권한에 관한  
+`policy-neutral access-control`(정책 중립적인 접근 제어) 메커니즘을 정의한다.
+
+이번 섹션에서, `Nest guards` 를 사용한 매우 기본적인 `RBAC` 매커니즘을 어떻게  
+구현하는지 설명할 것이다.
+
+첫번째로, `Role` `enum` 을 생성한다. 이는 `system` 의 `roles` 를 보여준다.
+
+`roles.enum.ts`
+
+```ts
+
+export enum Role {
+  User = 'user',
+  Admin = 'admin',
+}
+
+```
+  
+> **HINT**
+> 좀더 복잡한 `systems` 에서는, `database` 에 `roles` 를 저장하거나,  
+> 외부의 `authentication` 프로바이더로 부터 가져올것이다.
+
+그리고 `@Roles()` 데커레이터를 생성할 수 있다.
+이 데커레이터는 특정 리소스들에 접근하는데 필요한 `roles` 를 지정할 수 있다.
+
+`roles.decorator.ts`
+
+```ts
+
+import { SetMetadata } from '@nestjs/common';
+import { Role } from '../enums/role.enum';
+
+// SetMetadata 에 사용될 key
+export const ROLES_KEY = 'roles';
+// Roles Decorator 생성
+// 함수의 인자로 Role[] 타입을 가진 ...roles 를 가지며,
+// ...roles 는 가변인자라고 한다.
+// 해당 roles 를 Metadata 로 저장한다
+export const Roles = (...roles: Role[]) => SetMetadata(ROLES_KEY, roles);
+
+```
+
+커스텀 `@Roles()` 데커레이터를 가지고 있으며, 어떠한 `route handler` 에  
+사용할수 있다.
+
+`cats.controller.ts`
+
+```ts
+
+@Post()
+@Roles(Role.Admin)
+create(@Body() createCatDto: CretaeCatDto) {
+  this.catsService.create(createCatDto);
+}
+
+```
+
+마지막으로, `RolesGuard` 클래스를 생성하고,  
+현재 사용자에게 할당된 `roles` 를 현재 진행중인 경로에 필요한  
+실제 역할과 비교한다
+
+경로들의 `roles` 에 접근할 목적으로, `Reflector` 헬퍼 클래스를 사용한다
+이 헬퍼 클래스는 `framework` 에 의해 기본적으로 제공되며,  
+`@nestjs/core` 패키지에 위해 가져온다.
+
+`roles.guard.ts`
+
+```ts
+
+import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+
+@Injectable()
+export class RolesGuard implements CanActivate {
+  // Reflector helper class 를 주입
+  constructor(private reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    // this.reflector.getAllAndOverride 를 사용하여 
+    // key 는 `ROLES_KEY` 이고,
+    // context 는 handler 혹은 class 인 roles 를 가져온다
+    const requiredRoles = this.reflector.getAllAndOverride<Role[]>(ROLES_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    // requiredRoles 가 없다면, 이는 
+    // roles 구성이 필요없는 route 이므로 guard 는 true 반환
+    if (!requiredRoles) {
+      return true;
+    }
+    // context.switchToHttp 로 request 객체를 가져온다
+    // 가져온 request 에서 user 프로퍼티를 distructuring 한다
+    const { user } = context.switchToHttp().getRequest();
+    // requiredRoles 중 하나의 role 이 포함된다면, true
+    // 그렇지 않으면 false
+    return requiredRoles.some((role) => user.roles?.includes(role));
+  }
+}
+
+```
+
+> ***HINT***
+> `Reflector` 활용에 맞는 더 자세한 내용은 실행 컨텍스트 챕터의  
+[Reflection and metadata](https://docs.nestjs.com/fundamentals/execution-context#reflection-and-metadata) 섹션에서 언급한다
+>
+
+이 예제에서, `request.user` 는 `user` 인스턴스를 가진다고 가정한다.
+그리고 `roles` 를 허용한다
+
+이 `app` 에서 아마도 당신은 커스텀 `authentication guard` 와  
+연관시켜 만들었을 것이다.
+
+> 이말은 이전에 [authentication](https://docs.nestjs.com/security/authentication) 챕터를 보고 `Authorization` 챕터를 이어서 볼것으로  
+예상하고 말하는듯하다.
+>
+> 만약 못보았다면 [authentication](https://docs.nestjs.com/security/authentication) 챕터를 보라고 설명한다.
+
+이 예시가 작동하려면 `User` class 는 아래와 같이 되어야 한다고 한다.
+
+```ts
+
+class User {
+  // ...other properties
+  roles: Role[];
+}
+
+```
+
+> 굳이 테스트까지는 하지 않고, 책의 내용을 좀더 이해하기 위해  
+> 개념만 보고 넘긴다.
+> 시간되면 나중에 `Docs` 도 하나씩 되짚기는 해야겠다.
+
+마지막으로, `RolesGuard` 를 등록한다.
+예를들어 `controller` 레벨 또는 `globally` 레벨에 등록한다  
+
+```ts
+providers: [
+  {
+    provide: APP_GUARD,
+    useClass: RolesGuard,
+  },
+],
+```
+
+위 코드는 `globally` 레벨에 등록한것이다.
+이제, `user` 의 요청이 `endpoint` 에서 불충분한 권한요청일때,  
+`Nest` 에서 자동적으로 다음의 `response` 를 반환한다. 
+
+```ts
+{
+  "statusCode": 403,
+  "message": "Forbidden resource",
+  "error": "Forbidden"
+}
+
+```
+
+> ***HINT***
+> 만약 다른 `error` 의 응답을 원한다면, `boolean` 값을 `return` 하지 말고,  
+특정 예외를 `throw` 해야만 한다.
+
+### Claims-based authrization
+
+`ID` 가 생성되면, 아마도 믿을수 있는 당사자에 의해 하나 또는 여러 `claims` 를  
+청구할수 있다.
+
+`claim` 은 `name-value` 페어이며, 이것은 인증된 사용자(`subject`)가 할수있는 것이 무엇인지, 아닌지를 알려준다.
+
+> `subject` 라는 말은 `주체`, `피실험자`, `주제` 등등의 많은 뜻으로 쓰인다.  
+> 여기서는 `주체` 즉 실제 대상을 가리키며, 이는 `인증된 사용자` 로  
+> 해석될수 있다.
+
+`Nest` 의 `Claims-based authorization` 을 구현하려면, `RBAC` 섹션과  
+비슷하지만 한가지 다른점이 있다.
+
+지정된 `roles` 를 체크하는 대신, `permissions` 를 비교해야만 한다.
+모든 유저는 일련의 `permissions`이 할당된다
+
+마찬가지로, 각 `resource/endpoint` 는 어떤 `permission` 이 요구되는지  
+정의하고 접근한다.
+
+> 예를들어 전용 `@RequirePermissions()` 데커레이터를 통해서..
+
+`cats.controller.ts`
+
+```ts
+
+@Post()
+@RequirePermissions(Permission.CREATE_CAT)
+create(@Body() createCatDto: CreateCatDto) {
+  this.catsService.create(createCatDto);
+}
+
+```
+
+> ***HINT***
+> 위의 예시에는, `Permission`(`RBAC` 섹션에서 보여준 `Role` 과 비슷하다) 은  
+> `Typescript` 의 `enum` 이다. 이 `enum` 은 `system` 안에서 활용가능한  
+> 모든 `permissions` 를 포함한다.
+
+### Integrating CASL
+
+`CASL` 은 `isomorphic authorization library` 이다. 이 `CASL` 은 `castle` 로  
+발음되기에 지어진 명칭이라 한다.  
+
+이는 `resource` 에대한 `client` 의 접근 허용을 엄격히 제한하는 `javascript`  
+라이브러리이다.
+
+이 라이브러리는 점진적으로 적용가능하고, 간단한 `claim` 기반과  
+모든 기능을 가진 인증된 유저 그리고 속성 기반 인가(`Authorization`) 사이에서  
+쉽게 확장 할수 있다.
+
+이 라이브러리는 `UI` 컴포넌트들, `API` 서비스, `DB query`를 오가며 권한을  
+공유하며, 관리를 쉽게 만들어준다.
+
+`CASL` 은 [Attribute Based Access Control](https://en.wikipedia.org/wiki/Attribute-based_access_control) 로 구현되었다고 한다.
+
+```sh
+
+\$ npm i @casl/ablility 
+
+```
+
+> ***HINT***
+> 이 예시는, `CASL` 을 선택한다. 그러나 취향에 따라 `accesscontrol` 이나  
+`acl` 같은 라이브러리를 사용할수 있다.
+
+설치가 완려되면, `CASL` 의 메커니즘을 설명하기 위해 2개의 `entity` 클래스인  
+`User` 와 `Article` 을 정의한다
+
+```ts
+
+class User {
+  id: number;
+  isAdmin: boolean;
+}
+
+```
+
+`User` 클래스는 두개의 프로퍼티를 가진다. `id` 는 고유한 유저 식별자이고,  
+`isAdmin` 은 `user` 가 관리자 권한을 가졌는지 아닌지를 가리킨다
+
+```ts
+
+class Article {
+  id: number;
+  isPublished: boolean;
+  authorId: number;
+}
+
+```
+
+`Article` 클래스는 `id`, `isPublished` 그리고 `authorId` 라는  
+3개의 프로퍼티를 가진다.
+
+`id` 는 `article` 의 유일한 식별자이고,  
+`isPublished` 는 `article` 이 이미 `publishd` 인지 아닌지를 가리킨다.
+그리고 `authorId` 는 `article` 을 쓴 사람의 `ID` 이다.
+
+---
+
+***이제, 예시를 위한 우리의 요구사항을 검토하고 개선해보자***
+
+- `Admin` 은 모든 `entities` 를 `manage`(`CRUD`) 할수 있다
+- `User` 는 모든것에 대한 `read-only` 접근을 가진다.
+- `User` 는 자신의 `article` 을 `update` 할수 있다.(`article.authorId = userId`)
+- 이미 게시된 `Article` 은 삭제할수 없다.
+
+---
+
+`Action` `enum` 을 생성하는것 부터 시작할수 있다.
+`Action` `enum` 은 , 사용자 `entites` 에서 사용할 수 있는 모든 가능한  
+`action` 을 보여준다
+
+```ts
+
+export enum Action {
+  // manage 액션
+  Manage = 'manage',
+  // create 액션
+  Create = 'create',
+  // read 액션
+  Read = 'read',
+  // update 액션
+  Update = 'update',
+  // delete 액션
+  Delete = 'delete',
+}
+
+```
+
+> ***HINT***
+> `manage` 는 `CASL` 에서 `any` 액션을 나타내는 특별한 키워드이다.
+
+`CASL` 라이브러리를 캡슐화하려면, `CaslModule` 그리고 `CaslAbilityFactory` 를  
+생성한다.
+
+```ts
+
+\$ nest g mo casl
+\$ nest g class casl/casl-ability.factory
+
+```
+
+만들어진 `CaslAbilityFactory` 에서 `createForUser()` 메서드를 정의할수 있다.
+이 메서드는 주어진 `user` 에 대한 `Ability` 객체를 생성할 것이다.
+
+```ts
+
+// Subjects type 을 만든다.
+// typeof Article 또는 typeof User 의 subject 를 추정하는데 사용되는
+// InferSubjects 를 사용한다.
+// `union type` 으로 `all` 도 포함한다
+type Subjects = InferSubjects<typeof Article | typeof User> | 'all';
+
+// Ability 타입을 추정하기 위해 `Action` 과 `Subjects` 타입을
+// 제네릭의 배열로 넣는다.
+export type AppAbility = Ability<[Action, Subjects]>;
+
+// provider 생성
+@Injectable()
+export class CaslAbilityFactory {
+  // user 를 인자로 받고 이를 이용해서 `Ablility` 객체를 만드는
+  // 메서드
+  createForUser(user: User) {
+    // AbilityBuilder 를 사용하여, can, cannot, build 를 구조분해할당한다
+    const { can, cannot, build } = new AbilityBuilder<
+      Ability<[Action, Subjects]>
+    >(Ability as AbilityClass<AppAbility>);
+
+    // user 가 admin 이라면
+    if (user.isAdmin) {
+      // 모든 권한에 대해 접근 가능하다
+      can(Action.Manage, 'all'); // read-write access to everything
+    } else {
+      // 아니라면, 읽기만 가능하다
+      can(Action.Read, 'all'); // read-only access to everything
+    }
+
+    // Article 의 Update 액션에 대해서 소유자의 { user.id } 가 
+    // 맞다면 업데이트 가능하다. 
+    can(Action.Update, Article, { authorId: user.id });
+    // Article 의 Delete 액션은 이미 isPublished 가 true 가 된
+    // article 이라면 삭제 불가능하다 
+    cannot(Action.Delete, Article, { isPublished: true });
+    // 처리한 내용을 build 한다
+    return build({
+      // 
+      // Read https://casl.js.org/v6/en/guide/subject-type-detection#use-classes-as-subject-types for details
+      //
+      // `CASL` 은 `class` 를 사용하여 `backend` 에서 도메인 로직을
+      // 모델링하는것이 일반적이다.
+      // 그래서 `permission` 정의에서 `subject type` 으로 `class` 를  
+      // 사용하기 원할 수 있다.
+      // 이때 필요한것이 커스텀 `detachSubjectType` 이다.
+      // 
+      // `Typescript` 에서는 `issue` 로 인해 `object.constructor` 를  
+      // cast 할 필요가 있다고 한다.
+      // 
+      // 여기서는 typeof 시 constructor 가 `function` 으로 나온다.
+      // 내가볼때는 `subject` 로 사용되는 `class` 타입이어야 하는듯하다.abs
+      // 이러한 타입문제로 인해 `casting` 해주는 듯 하다. 
+      //
+      // 굳이, 왜 detactSubjectType 을 사용하여 처리하는지 아직은 
+      // 이해가 안간다.
+      // 다른 방식으로 CASL 을 사용하는 예시가 있던데...
+      // 뭐.. Docs 의 예시이니 그냥 넘어간다.
+      detectSubjectType: (item) =>
+        item.constructor as ExtractSubjectType<Subjects>,
+    });
+  }
+}
+
+```
+
+> ***NOTICE***
+> `all` 은 `CASL` 에서 `any subject` 를 나타내는 특별한 키워드이다.
+>
+> ***HINT***
+> `Ability`, `AbilityBuilder`, `AblilityClass` 그리고 `ExtractSubjectType` 은  
+> `@casl/ablility` 패키지로 부터 `export` 된 클래스이다.
+>
+> ***HINT***
+> `detachSubjectType` 옵션은 `CASL` 이 객체에서 `subject type` 을 어떻게  
+가져오는지 방법을 이해할 수 있다.
+> [CASL documentation](https://casl.js.org/v6/en/guide/subject-type-detection#use-classes-as-subject-types) 에서 더 자세한 정보를 볼 수 있다.
+>
+> 내가 이해한 내용으로는 `detachSubjectType` 은 `subjectType` 이 무엇인지  
+> 결정하는 함수이며, 타입이 다음처럼 생겨먹었다.
+
+```ts
+detachSubjectType(subject: any): SubjectType;
+```
+
+> 그러므로 `subject` 부분이 무엇이냐에 따라, 해당 타입을 반환한다.
+> 현재 위의 예시는 `class` 를 `subject` 타입으로 처리하고 있으니  
+> 해당 `class` 타입을 내보내야 한다.
+>
+> 그러므로, 커스텀하게 `subjectType` 을 감지하여 내보내도록 처리해주는
+> 로직이라고 생각해도 될것 같다.
+
+이 예시에서, `AbilityBuilder` 클래스를 사용하여 `Ability` 인스턴스를  
+만들었다. 구조분해할당한 `can` 그리고 `cannot` 은 같은 인자를 받기도하지만,  
+다른 의미를 가진다.
+
+`can` 은 지정된 `subject` 에 대한 `action` 이 동작하도록 허용하고,  
+`cannot` 은 접근하지 못하게 막는다.
+
+둘다 4개의 인자를 허용하며, 이에 대해서는 [CASL documentation](https://casl.js.org/v6/en/guide/intro) 을 방문해서 배우도록 하라고 한다.
+
+> 대략적인 내용을 보니까,
+> `User Action`, `Subject`, `Fields`, `Conditions` 이렇게 4개의 인자를  
+> 받는다고 나와있다.
+> **`Action`** 은 `CRUD` 액션을 말하고,
+> **`Subject`** 는 인가 가능한 주체를 말한다.
+> **`fields`** 는 `해당 field` 에 대한 모든 권한을 부여한다.
+> **`Conditions`** 는 추가적인 인자의 조건이 맞다면, 해당 `subject` 의 `Action` 을 허용한다.
+
+이제 마지막으로, `CaslAbilityFactory` 를 `CaslModule` 의 `providers` 와  
+`exports` 의 배열에 넣어준다.
+
+```ts
+
+import { Module } from '@nestjs/common';
+import { CaslAbilityFactory } from './casl-ability.factory';
+
+@Module({
+  providers: [CaslAbilityFactory],
+  exports: [CaslAbilityFactory],
+})
+export class CaslModule {}
+
+```
+
+이제 더불어 `CaslModule` 을 `host context` 에서 가져오는한  
+`CaslAbilityFactory` 를 사용할 `class` 의 `contructor` 에 주입할수  
+있다.
+
+```ts
+constructor(private caslAbilityFactory: CaslAbilityFactory) {}
+```
+
+그때, 다음처럼 사용한다.
+
+```ts
+const ability = this.caslAbilityFactory.createForUser(user);
+if (ability.can(Action.Read, 'all')) {
+  // "user" has read access to everything
+}
+```
+
+예를 들어서, `user` 가 `admin` 이 아닌경우, 이 `user` 는 `article` 을  
+읽을수있지만, 새로운것을 생성하거나, 존재하는 `article` 을 삭제하지 못하게  
+금지 되어야 한다.
+
+```ts
+
+const user = new User();
+user.isAdmin = false;
+
+const ability = this.caslAbilityFactory.createForUser(user);
+ability.can(Action.Read, Article); // true
+ability.can(Action.Delete, Article); // false
+ability.can(Action.Create, Article); // false
+
+```
+
+또한, 요구사항에 정한것 처럼, `user` 는 자신의 `article` 을  
+`update` 할수있어야만 한다
+
+```ts
+
+const user = new User();
+user.id = 1;
+
+const article = new Article();
+article.authorId = user.id;
+
+const ability = this.caslAbilityFactory.createForUser(user);
+ability.can(Action.Update, article); // true
+
+article.authorId = 2;
+ability.can(Action.Update, article); // false
+
+```
+
+`Ability` 인스턴스는 꽤 읽기 쉬운 방법으로 `permissions` 체크를 하고있다.
+마찬가지로, `AbilityBuilder` 는 비슷한 방식으로 `permissions` 정의하고,  
+다양한 조건을 지정 할 수있다
+
+### Advanced: Inplementing a policiesGuard
+
+이 섹션에서, 좀더 정교한 `guard` 를 만드는 방법에대해 보여주도록 한다
+만약 `user` 가 특정 `authorization` 정책을 만난다면, `method-level` 에서  
+설정할 수 있다. (`class-level` 에서 역시 정책을 설정을 확장 할수도 있다.)
+
+이번 예시에서, `CASL` 패키지를 단지 보여주기위한 목적으로 사용하지만,  
+이 라이브러리가 필수적이지는 않다
+
+또한 `CaslAbilityFactory` 는 이전 섹션에서 이미 생성했으므로,  
+`CaslAbilityFactory` 를 사용할 것이다.
+
+첫번째로, 요구사항을 구체화 시켜본다.
+목표는 경로 핸들러별로 정책 검사를 지정할 수 있는 메커니즘을 제공하는것이다.
+
+객체 그리고 함수들 모두 지원한다.
+(간단하게 검사하고, 좀더 함수형 스타일의 코드를 제공하기 위해)
+
+정책 핸들러를 위한 `interface` 정의 부터 시작해보자
+
+```ts
+
+// AppAility 타입을 가져옴
+import { AppAbility } from '../casl/casl-ability.factory';
+
+// 정책 핸들러 인터페이스
+interface IPolicyHandler {
+  // ablility 로 AppAbility 를 받으며, booelan 을 리턴하는 함수
+  handle(ability: AppAbility): boolean;
+}
+
+// 정책 핸들러 콜백함수의 타입
+type PolicyHandlerCallback = (ability: AppAbility) => boolean;
+
+// 정책핸들러의 타입을 함수와 객체로 처리하기 위해
+// 유니온 타입으로 타입지정
+export type PolicyHandler = IPolicyHandler | PolicyHandlerCallback;
+
+```
+
+`policy handler` 를 지정하기 위한  
+`object` (`IPolicyHandler` 인터페이스로 구현한 `class` 의 인스턴스) 와  
+`function` (`PolicyHandlerCallback` 인 함수타입) 인 두개의 가능한 방법을 제공한다
+
+이곳에 추가적으로 `@CheckPolicies()` 데커레이터를 생성할 수 있다.
+이 데커레이터를 사용하면 지정한 리소스에 접근을 위해 충족해야 하는 정책을  
+지정할 수 있다.
+
+```ts
+
+export const CHECK_POLICIES_KEY = 'check_policy';
+export const CheckPolicies = (...handlers: PolicyHandler[]) =>
+  SetMetadata(CHECK_POLICIES_KEY, handlers);
+
+```
+
+`PoliciesGuard` 를 생성하고, 이 `guard` 는 `route handler` 에  
+바인드된 모든 `policy handlers` 를 추출하고 실행할것이다.
+
+```ts
+
+@Injectable()
+export class PoliciesGuard implements CanActivate {
+  // reflector, caslAbilityFactory 주입
+  constructor(
+    private reflector: Reflector,
+    private caslAbilityFactory: CaslAbilityFactory,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    // policyHandlers 를 `route handler` 에서 get
+    const policyHandlers =
+      this.reflector.get<PolicyHandler[]>(
+        CHECK_POLICIES_KEY,
+        context.getHandler(),
+      ) || [];
+
+    // request 객체에서 `user` 객체를 가져옴
+    const { user } = context.switchToHttp().getRequest();
+    // caslAbilityFactory 에서 createForUser 를 사용하여,
+    // ability 인스턴스 생성
+    const ability = this.caslAbilityFactory.createForUser(user);
+
+    // policyHandlers 를 순회하며 handler 실행
+    return policyHandlers.every((handler) =>
+      this.execPolicyHandler(handler, ability),
+    );
+  }
+
+  // policyHandler 를 받아 실행시킬 메서드
+  private execPolicyHandler(handler: PolicyHandler, ability: AppAbility) {
+    // handler 가 함수라면 함수 실행
+    if (typeof handler === 'function') {
+      return handler(ability);
+    }
+    // 함수가 아니라면, handler 내부 메서드인 handle 실행
+    return handler.handle(ability);
+  }
+}
+
+```
+
+`policyHandlers` 는 `@CheckPolicies()` 데커레이터를 통한 메서드로부터  
+할당된 `handlers` 의 배열이다.
+
+다음으로, `CaslAbilityFactory#create` 메서드를 사용한다. 이 메서드는 `Ability` 객체를 생성하며, 지정된 액션을 수행할 능력이 있는 `permissions`  
+를 가졌는지에 대한 검사를 하는 객체이다
+
+이 객체 `policy handler` 에 전달하며, 이 `policy handler` 는 함수이던가 `IPolicyHandler`로 구현된 클래스의 인스턴스일 것이다.
+
+`IPolicyHandler` 로 구현된 클래스라면, `boolean` 값을 반환하는  
+`handle()` 메서드를 노출시켜 실행시킨다
+
+마지막으로, `Array#every` 메서드를 통해 모든 `handler` 가 `ture` 값을  
+반환했는지 확인하다.
+
+마지막으로, `guard` 를 테스팅한다. `route handler` 를 통해 바인드하고,  
+`policy handler` 를 등록한다.
+
+```ts
+@Get()
+@UseGuards(PoliciesGuard)
+@CheckPolicies((ability: AppAbility) => ability.can(Action.Read, Article))
+findAll() {
+  return this.articlesService.findAll();
+}
+```
+
+`policy handler` 에 `IPolicyHandler` 인터페이스로 구현된 클래스를 정의해본다
+
+```ts
+
+export class ReadArticlePolicyHandler implements IPolicyHandler {
+  handle(ability: AppAbility) {
+    return ability.can(Action.Read, Article);
+  }
+}
+
+```
+
+그리고 다음처럼 사용한다
+
+```ts
+
+@Get()
+@UseGuards(PoliciesGuard)
+@CheckPolicies(new ReadArticlePolicyHandler())
+findAll() {
+  return this.articlesService.findAll();
+}
+
+```
+
+이로써 `Authorization` 에 대한 `Docs` 에 대한 내용정리가 끝났다.
+실상 `CASL` 로 구현하면서 이해하는데 약간의 어려움이 있기는 하다.
+추가적으로 다시한번 보면서 처리해보아야 겠다.
+이제 책에 대한 내용으로 돌아가서 내용을 살펴보도록 하자. 
+
+
