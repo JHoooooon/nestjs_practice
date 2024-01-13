@@ -1,0 +1,28 @@
+### user url
+@url = http://localhost:3000/user
+
+### Create User
+POST {{url}}/create
+Content-Type: application/json
+
+{
+  "username": "qqq",
+  "password": "test1234",
+  "email": "qqq@qqq.com"
+}
+
+### Get User
+GET {{url}}/getUser/qqq@qqq.com
+
+### Update User
+
+PATCH {{url}}/update/qqq@qqq.com
+Content-Type: application/json
+
+{
+  "username": "testqqq"
+}
+
+### Delete User
+DELETE {{url}}/delete/qqq@qqq.com
+Content-Type: application/json
