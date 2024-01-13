@@ -413,7 +413,7 @@ export interface ValidationPipeOptions extends ValidatorOptions {
 | whitelist | `boolean` | 만약 `true` 라면, `validation decorator` 를 <br/> 사용하지 않은 모든 프로퍼티들을 제거한다. <br/><br/> `class-validator` 는 검증시, 검증 규칙이 정의 되어있지 않은 프로퍼티가 있더라도 오류없이 그대로 <br/> 통과시킨다. `whitelist` 를 사용하면 정의되지 않은 프로퍼티는 제거하고, 작성된 프로퍼티만 리턴한다.|
 | forbidNonWhitelisted | `boolean` | 만약 `true` 라면, `non-whitelist` 된 프로퍼티<br/> 를 제거하는 대신에, 예외를 던진다. |
 | forbidUnknownValues | `boolean` | 만약 `true` 라면, `unknown` 객체를 검사하려고 시도하면 즉각적으로 실패한다 <br/><br/> 기본적으로 `class-validator` 는 검증을 수행할때 <br/> 대상 객체에 `unknown` 객체가 포함되더라도 오류 없이 통과시킨다.<br/><br/> 이는 `null`, `undefined` 도 포함한다. 둘다 타입이 없는 값이기에 이들을 <br/> `class-validator` 는 `unknown` 객체로 처리한다|
-| disableErrorMessages | `boolean` | 만약 `true` 라면, 검증 에러는 <br> `client` 로 리턴되지 않는다 |
+| disableErrorMessages | `boolean` | 만약 `true` 라면, 검증 에러는 <br/> `client` 로 리턴되지 않는다 |
 | errorHttpStatusCode | `number` | 이 설정은 `error` 가 발생한 경우 예외타입을 지정할 수 있다. <br/> 기본값으로 `BadRequestException` 가 설정되어 있다. |
 | exceptionFactory | `function` | 검증 에러의 배열을 가져와서, 던질 예외 객체를 리턴한다. |
 | groups | `string[]` | 객체를 검증하는 동안 사용될 `group` 들 이다. <br/> 기본적으로 `class-validator` 는 모든 데커레이터에 대해 검증을 수행한다. <br/> `groups` 옵션을 사용하면 특정 그룹에 속한 데커레이터에 대해서만 검증을 수행한다.<br/><br/>`class-validator` 에서는 사용할 검증 데커레이터에 옵션 객체중 `groups` 프로퍼티가 있다. <br/><br/> 이를 사용하여 지정할 `groups` 배열에 <br/> `group` 명을 지정하고, 이 옵션상에 사용하면 지정된 `group` 만 검증하게 된다.|
@@ -1069,5 +1069,253 @@ export class AuthController {
 이를 이해한다음 `Nest.js` 에서 어떠한 방식으로 `passport` 를  
 사용하는지 알아본다.
 
-##### passport 의 `authentication`
+##### passport 의 `Middleware`
+
+`Passport` 는 인증요청에 대한 웹 어프리케이션 미들웨어로써 사용된다.
+
+미들웨어는 `Express` 내에서 대중적으로 사용되고 있으며, [Connect](https://github.com/senchalabs/connect) 라이브러리보다 좀더 작게 만들어진 버전이다.
+
+이 미들웨어는 다른 웹 프레임워크를 쉽게 적용시킬수 있다.
+
+다음은 `username` 과 `password` 와 함께 유저인증을 하는 `authenticate` 라우트에 대한 예제이다.
+
+```ts
+
+app.post('/login/password',
+  passport.authenticate('local', { failureRedirect: '/login', failureMessage: true }),
+  function(req, res) {
+    res.redirect('/~' + req.user.username);
+  });
+
+```
+
+이 라우트를 보면, `passport.authenticate()` 는 미들웨어이다. 이 미들웨어는 요청을 인증한다.
+
+보통 여기서 사용되는 `authenticate` 함수의  
+목적은 인증처리가 완료되면, 그때 `req.user`  
+에 인증된 `user` 정보를 넣어주는 역할을 한다.
+
+`authenticate` 가 실패하면, `/login` 경로로  
+`redirect` 시키고 실패메시지와 함께 응답한다.
+
+`passport.authenticate` 의 첫번째 인자를  
+보면 `local` 이라고 작성되어 있는데, 이는  
+`authenticate` 시에 사용할 `passport` 의 `stratege` 이다.
+
+#### Passport 의 `stratege`
+
+`stratege` 는 요청인증을 담당한다. 이는 인증 메커니증을 구현하여  
+수행하는 목적에 만들어졌다.
+
+> `stratege` 는 `전략` 이라는 뜻을 가진것을 보면, 인증
+매커니즘에 따라 사용 `전략` 이 달라지므로, 이름을 지은듯 하다.
+
+인증 매커니즘은 요청시 식별제공자(`IdP(Identity Provider)`)  
+나 패스워드같은 신원확인을 위한 증거(`assertion`)를 인코딩하는  
+방법을 정의한다.
+
+또한, 꼭 필요한 확인 및 자격증명을 위한 함수를 특정짓는다.
+만약, 자격증명이 성공적으로 확인 되었다면, 이 요청은 인증된 것이다.
+
+여러 인증 메커니즘과 그에 맞는 여러 `stratege` 가 있다.
+`stratege` 는 분리된 패키지로 구분되었으므로, 반드시 인스톨하고,  
+설정하고, 등록해야 한다.
+
+```ts
+
+npm install passport-local;
+
+```
+
+이는 `passport` 의 `local` 전략을 설치하는 것이다.
+`local` 전략은 단순하게 `username` 과 `password` 를 통해서  
+인증하는 방법이다.
+
+이외에 여러 전략들이 존재하는데 이는 [Passport Stratege](https://www.passportjs.org/packages/) 에서 확인 가능하다.
+
+이제 설치가 끝났으면 전략을 설정하는 과정이 필요하다.
+설정하는 방법은 각 인증 메커니즘에 따라 여러가지이며, 그렇기에  
+각 전략에 지정된 `docs` 를 참고해야만 한다.
+
+여기서는 가장 간단한 하면  `local` 전략을 살펴본다.
+보통 전략을 사용하면 공통의 패턴을 가지는데, 이는 다음과 같다.
+
+```ts
+
+var LocalStrategy = require('passport-local');
+
+export const strategy = new LocalStrategy(function verify(username, password, cb) {
+  db.get('SELECT * FROM users WHERE username = ?', [ username ], function(err, user) {
+    if (err) { return cb(err); }
+    if (!user) { return cb(null, false, { message: 'Incorrect username or password.' }); }
+
+    crypto.pbkdf2(password, user.salt, 310000, 32, 'sha256', function(err, hashedPassword) {
+      if (err) { return cb(err); }
+      if (!crypto.timingSafeEqual(user.hashed_password, hashedPassword)) {
+        return cb(null, false, { message: 'Incorrect username or password.' });
+      }
+      return cb(null, user);
+    });
+  });
+});
+
+```
+
+코드를 살펴보면, `LocalStrategy` 생성자는 함수 인자를 가진다.
+이 함수는 `verify`로 명명지어진 함수이고, 많은 전략에서 공통적으로  
+사용하는 패턴이다.
+
+인증 요청일때, 이 전략은 요청객체에 포함된 자격증명을 구문분석한다.
+그런 다음 자격증명에 속한 사용자를 결정하는 역할을 하는 `verify` 함수가 호출된다.
+
+이를 통해 데이터 접근을 어플리케이션에 위임할 수 있다.
+
+예시를 보면, `verfiy` 함수는 데이터베이스로 부터 유저 `record` 를 얻기위해 `SQL` 쿼리를 실행하고, 패스워드를 검사한 이후에 `record` 를  
+다시 전략에 적용한다(`cb`함수).
+
+> `passport` 문서상에서 `yielding the record back to the strategy,`
+라고 하는데, 이게 `해당 레코드를 전략에 다시 적용한다`로 해석된다.  
+`cb` 로 값을 넣는 과정을 말하는것으로 이해된다.
+
+따라서 유저 인증과 로그인 세션을 설정하게 된다.
+
+`verify` 함수는 특정 전략에 따라 인증 매커니즘에 의존하는 파라미터를  
+받는다.
+
+이 인증매커니즘은 `password` 같은 공유 `secrets` 를 공유하며,  
+`verfiy` 함수는 `user` 생성 그리고 자격 증명 생성에 대한  
+책임을 가진다.
+
+이 매커니즘은 암호화 인증을 제공하기 위해, 유저와 키를 생성한다.  
+그 중 키는 자격증명시 암호를 확인하기 위해 사용될 것이다.
+
+> 문서를 보면 유저와 키를 생성한다고 한다.
+> 얼핏 보면 뭔말인가 싶지만 다음의 부분을 말한다.
+
+```ts
+
+ crypto.pbkdf2(password, user.salt, 310000, 32, 'sha256', function(err, hashedPassword) { ... }
+
+```
+
+> 여기에서, `hashed_password` 가 암호화 인증을 위해 제공되는 키라고  
+보면 된다. 이 `hashed_password` 를 사용하여, 기존 `user.password` 와  
+비교하여 맞으면 `cb(null, user)` 를 통해 `user` 값을 `callback` 으로  
+보낸다.
+
+여기서 `cb` 함수는 3가지의 상황을 표현할 수 있다.
+
+```ts
+
+cb(null, user) // 성공
+cb(null, false) // 실패
+cb(err) // 에러
+
+```
+
+`docs` 에서는 발생할 수 있는 두가지 실패 사례를 구별하는것이  
+중요하다고 한다.
+
+인증 실패는 악의적인 공격자로 부터 잘못된 자격 증명을 수신하더라도  
+서버가 정삭적으로 작동하는 예산된 조건이지만, 서버가 비정상적으로  
+동작하는 경우에는 내부 오류를 나타내기 위해 `err` 를 설정해야 한다.
+
+이렇게 `strategy` 가 무엇인지 대략적으로 알게 되었다.
+그럼 이제 해당 `strategy` 를 서버에 등록하도록 하자.
+
+#### Register
+
+전략을 생성했으면, `passport` 에 사용하겠다고 등록하는 과정이  
+필요하다. 이를 위해 `use` 메서드를 사용하여 처리한다.
+
+```ts
+
+import passport from 'passport';
+import { strategy } from '@/passport/local-strategy'
+
+passport.use(startegy);
+
+```
+
+모든 전략에 대한 네이밍 컨벤션이 있는데, `package` 상의 이름은  
+`passport-{name}` 방식의 이름으로 되어있다.  
+
+즉 `LocalStrategy` 는 `passport-local` 이다.
+이제 전략에 대한 등록이 완료 되었으니, `authenticate` 미들웨어에  
+위해 `'local'` 전략이 실행된다.
+
+하지만 전략 실행이후에, `cookie` 및 `session` 을 처리해주어야  
+한다.
+
+#### sessions
+
+웹 어플리케이션은 페이지에서 페이지를 탐색하면서 유저를 식별하는  
+능력이 필요하다.
+
+각 동일한 유저에 연관된 일련의 요청, 응답을 세션이라 한다.
+`HTTP` 는 `stateless` 프로토콜이다. 이는 각 어플리케이션요청  
+을 개별적으로 이해할수 있음을 의미한다. (앞전의 요청으로 부터의 상태정보 없이 사용가능하는 것이다.)
+
+이는 로그인한 사용자에 대한 문제를 제기한다. 인증된 유저는  
+어플리케이션 탐색시 이후 요청에 대해 기억되어야하기 때문이다.
+
+> 참 번역을 하면서 공부하다 보면 뭔가 말이 꼬인다.
+간단하게 말하면, 인증된 유저는 각 페이지 탐색시 다른 페이지로 이동하더라도 여전히 서버에서 기억하고 있어야 함을 의미한다.
+만약 서버에서 기억 못한다면 해당 유저가 로그인된 유저인지 알지 못한다.
+>
+> 페이지 전환때마다 로그인 해야 한다면 짜증날 것이다.
+
+이후의 내용은 간단하다. 이를 해결하기 위해 `cookie` 가 등장했으며,  
+`stateless` 인 `HTTP` 통신을 `statefull` 하게 만들었다고 한다.  
+이러한 `cookie` 가 보안상 문제가 있기에, `session` 저장소를  
+사용하여 인증에 대한 유저 정보를 저장하고, `cookie` 에 저장된  
+`key` 를 사용하여 저장된 값을 가져온다는 내용이다.
+
+이를 위해 많이 사용되는 `express-session` 을 사용한다.
+
+```ts
+
+var session = require('express-session');
+
+app.use(session({
+  secret: 'keyboard cat',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: true }
+}));
+
+```
+
+이렇게 `session` 객체를 생성했고,
+로그인 세션을 유지하려면,  `session` 으로 부터 유저 정보를  
+`serialize(직렬화)`, `deserialize(역직렬화)` 해야 한다.
+
+> 직렬화는 데이터를 일련의 문자열이나 바이너리 데이터로 변환하는작업  
+을 말한다. 이는 인증 결과를 직렬화시킨후 저장하기에 붙은 이름이다.
+>
+> 역직렬화는 직렬화된 데이터를 다시 원래의 데이터로 복원한다.
+
+`local` 전략에서 `cb(null, user)` 로 넘긴 `user` 데이터를  
+세션에 저장해야 하므로, `passport` 는 `serializeUer` 메서드를  
+제공한다.
+
+```ts
+
+passport.serializeUser(function(user, cb) {
+  process.nextTick(function() {
+    return cb(null, {
+      id: user.id,
+      username: user.username,
+      picture: user.picture
+    });
+  });
+});
+
+```
+
+`serializeUser` 는 전략이 성공하면 `passport` 에 의해 호출된다.
+
+`serializeUser` 는 세션에 저장할 데이터를 지정한다.
+제공되는 `cb` 의 두번째 인자로 해당 데이터를 넣어주면, 세션 저장소에  
+해당 내용일 직렬화되어 저장된다.
 
