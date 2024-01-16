@@ -1,0 +1,48 @@
+### auth url
+@url = http://localhost:3000/auth
+
+### POST register
+POST {{url}}/register
+Content-Type: application/json
+
+{
+  "email": "qqq@qqq.com",
+  "password": "test123",
+  "username": "qqq"
+}
+
+### POST login
+POST {{url}}/login
+Content-Type: application/json
+
+{
+  "email": "qqq@qqq.com",
+  "password": "test123"
+}
+
+### POST login2
+POST {{url}}/login2
+Content-Type: application/json
+
+{
+  "email": "qqq@qqq.com",
+  "password": "test123"
+}
+
+### POST login3
+POST {{url}}/login3
+Content-Type: application/json
+
+{
+  "email": "qqq@qqq.com",
+  "password": "test123"
+}
+
+### GET test-guard
+GET {{url}}/test-guard
+
+### GET test-guard
+GET {{url}}/test-guard2
+
+### 쿠키 삭제
+cookiesToDelete: []
