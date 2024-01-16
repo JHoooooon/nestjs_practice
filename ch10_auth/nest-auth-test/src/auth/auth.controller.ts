@@ -11,7 +11,7 @@ import {
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { CreateUserDto, LoginUserDto } from 'src/user/user.dto';
-import { LoginGuard } from './auth.guard';
+import { AuthenticateGuard, LocalAuthGuard, LoginGuard } from './auth.guard';
 
 @Controller('auth')
 export class AuthController {
@@ -73,10 +73,22 @@ export class AuthController {
     throw new HttpException('이미 로그인된 유저입니다.', HttpStatus.FORBIDDEN);
   }
 
+  @UseGuards(LocalAuthGuard)
+  @Post('login3')
+  async login3(@Request() req) {
+    return req.user;
+  }
+
   @UseGuards(LoginGuard)
   @Get('test-guard')
   async testGuard() {
     // 로그인되면 아래 글 리턴
     return '로그인된 때만 이글이 보입니다.';
+  }
+
+  @UseGuards(AuthenticateGuard)
+  @Get('test-guard2')
+  async testGuardWithSession(@Request() req) {
+    return req.user;
   }
 }

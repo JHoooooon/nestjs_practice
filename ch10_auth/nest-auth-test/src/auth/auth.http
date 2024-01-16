@@ -29,8 +29,20 @@ Content-Type: application/json
   "password": "test123"
 }
 
+### POST login3
+POST {{url}}/login3
+Content-Type: application/json
+
+{
+  "email": "qqq@qqq.com",
+  "password": "test123"
+}
+
 ### GET test-guard
 GET {{url}}/test-guard
+
+### GET test-guard
+GET {{url}}/test-guard2
 
 ### 쿠키 삭제
 cookiesToDelete: []
