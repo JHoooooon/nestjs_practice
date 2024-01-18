@@ -1,0 +1,37 @@
+
+@url=http://localhost:3000
+
+### memory storage
+
+POST {{url}}/file-upload
+Content-Type: multipart/form-data; boundary=test-file-upload
+
+--test-file-upload
+Content-Disposition: form-data; name="file"; filename="test.txt"
+
+< test.txt
+--test-file-upload--
+
+### disk storage
+
+POST {{url}}/file-upload-storage
+Content-Type: multipart/form-data; boundary=test-file-upload
+
+--test-file-upload
+Content-Disposition: form-data; name="file"; filename="test.txt"
+
+< test.txt
+--test-file-upload--
+
+### serve static file
+POST {{url}}/file-upload-storage
+Content-Type: multipart/form-data; boundary=test-file-upload
+
+--test-file-upload
+Content-Disposition: form-data; name="file"; filename="cat.jpeg"
+
+< cat.jpeg
+--test-file-upload--
+
+
+
