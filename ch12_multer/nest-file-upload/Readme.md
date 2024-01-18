@@ -290,4 +290,3 @@ Content-Disposition: form-data; name="file"; filename="cat.jpeg"
 
 이렇게 하고,
 `http://localhost:3000/uploads/6d6b44db-e2c4-406e-af9c-0d60bfab3791.jpeg` 로 접속해보면, 해당 파일을 인터넷상에서 접근할수 있게 된다.
-
