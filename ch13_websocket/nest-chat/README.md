@@ -330,8 +330,14 @@ socket.on('message', (message) => {
 ```ts
 
   handleMessage(client: Socket, payload: any): void {
+    client.broadcast.emit('message', `${payload.nickname}: ${payload.message}`);
     // payload 의 nickname 과 message 전달
-    this.server.emit('message', `${payload.nickname}: ${payload.message}`);
+    // this.server.emit 은 모든 `client` 에 전달하고,
+    // socket.broadcast.emit 은 전송을 요청한 클라이언트를
+    // 제외한 다른 클라이언트들에게 전송한다
+    //
+    // 이는 채팅시 내 메시지와 상대방 메시지를 구분하는데
+    // 용이하다.
   }
 
 
@@ -340,3 +346,299 @@ socket.on('message', (message) => {
 이렇게 전달하면 이제 `prompt` 를 통해 전달한 `nickname` 을  
 서버에 전달할 수 있다.
 
+이제 채팅방을 생성하기 위해 `html` 을 수정한다.
+수정한 `html` 에서는
+
+```html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Nest Chat</title>
+  </head>
+  <body>
+    <h2>Simple Nest Chat</h2>
+    <div>
+      <h2>채팅방 목록</h2>
+      <ul id="rooms"></ul>
+    </div>
+
+    <input
+      type="text"
+      name="message"
+      id="message"
+      placeholder="메시지를 입력해주세요."
+    />
+    <button onclick="sendMessage()">전송!!!</button>
+    <button onclick="createRoom()">방 만들기</button>
+
+    <div>
+      <h2>채팅</h2>
+      <div id="chat"></div>
+    </div>
+  </body>
+  <script src="https://code.jquery.com/jquery-3.6.1.slim.js"></script>
+  <script src="http://localhost:3000/socket.io/socket.io.js"></script>
+  <script src="./script.js"></script>
+</html>
+```
+
+`script.js`
+
+```ts
+const socket = io('http://localhost:3000/chat');
+const roomSocket = io('http://localhost:3000/room');
+const nickname = prompt('닉네임을 입력해주세요.');
+
+socket.on('connect', () => {
+  console.log('connected');
+});
+
+function sendMessage() {
+  const message = document.querySelector('#message').value;
+  console.log(message);
+  socket.emit('message', { message, nickname });
+}
+
+socket.on('message', (message) => {
+  const chat = document.querySelector('#chat');
+  const div = document.createElement('div');
+  div.innerHTML = message;
+  chat.appendChild(div);
+});
+```
+
+이제 채팅방을 만든다
+
+`script.js`
+
+```js
+const socket = io('http://localhost:3000/chat');
+const roomSocket = io('http://localhost:3000/room');
+const nickname = prompt('닉네임을 입력해주세요.');
+
+socket.on('connect', () => {
+  console.log('connected');
+});
+
+function sendMessage() {
+  const message = document.querySelector('#message').value;
+  console.log(message);
+  socket.emit('message', { message, nickname });
+}
+
+// room 생성하는 함수
+function createRoom() {
+  const room = prompt('생성할 방의 이름을 입력해주세요.');
+  roomSocket.emit('createRoom', { room, nickname });
+}
+
+socket.on('message', (message) => {
+  const chat = document.querySelector('#chat');
+  const div = document.createElement('div');
+  div.innerHTML = message;
+  chat.appendChild(div);
+});
+
+// 클라이언트 측에서 채팅방을 추가하는 함수
+roomSocket.on('room', (data) => {
+  const rooms = document.querySelector('#rooms');
+  rooms.innerHTML = '';
+  data.forEach((room) => {
+    console.log(room);
+    const li = document.createElement('li');
+    li.innerHTML = `${room} <button onclick="joinRoom('${room}')">join</button>`;
+    rooms.appendChild(li);
+  });
+});
+```
+
+`room` `namespace` 를 생성하고, `createRoom` 호출시  
+`createRoom` 이벤트를 실행시킨다.
+
+서버의 구현은 다음과 같다.
+
+```ts
+import {
+  MessageBody,
+  SubscribeMessage,
+  WebSocketGateway,
+  WebSocketServer,
+} from '@nestjs/websockets';
+import { Server, Socket } from 'socket.io';
+
+@WebSocketGateway({ namespace: 'chat' })
+// `namespace` 설정
+export class ChatGateway {
+  @WebSocketServer() server: Server;
+  // 웹소켓 서버 인스턴스에 접근하는 데커레이터
+  // 직접 웹소켓 서버 인스턴스를 생성하지 않으므로,
+  // 이처럼 접근해야 한다
+
+  @SubscribeMessage('message')
+  // `message` 이벤트를 구독하는 리스너
+  // 클라이언트로 부터 message 를 받으면 paylaod 값에 데이터가 할당된다
+  // client 인자는 웹소켓 연결에 대한 인스턴스이다.
+  // SubscribeMessage 데커레이터는 생략가능한데 생략시
+  // client 는 @ConnectSocket() 데커레이터를,
+  // payload 는 @MessageBocy() 데커레이터를 사용해야 한다.
+  handleMessage(client: Socket, payload: any): void {
+    // this.server.emit('message', `${payload.nickname}: ${payload.message}`);
+    // server 인스턴스의 `emit` 을 사용하여,
+    // 클라이언트 전체에 `message` 를 보낸다
+    // 첫번째 인수는 `message` 이벤트명이고,
+    // 두번째 인수는 보내주는 데이터이다.
+    //
+    // socket.io 에서는 모든 클라이언트 인스턴스에 임의의
+    // id 값이 주어진다.
+    // 무작위의 문자열이라, 단순화 하기 위해 첫번째 문자열부터
+    // 4번째 문자열 앞까지 자른다.
+    //
+    client.broadcast.emit('message', `${payload.nickname}: ${payload.message}`);
+    // payload 의 nickname 과 message 전달
+    // this.server.emit 은 모든 `client` 에 전달하고,
+    // socket.broadcast.emit 은 전송을 요청한 클라이언트를
+    // 제외한 다른 클라이언트들에게 전송한다
+    //
+    // 이는 채팅시 내 메시지와 상대방 메시지를 구분하는데
+    // 용이하다.
+  }
+}
+
+@WebSocketGateway({ namespace: 'room' })
+// room 네임스페이스 생성
+export class RoomGateway {
+  rooms = [];
+  // rooms 를 담을 배열객체
+
+  @WebSocketServer()
+  server: Server;
+  // server 인스턴스 사용
+
+  @SubscribeMessage('createRoom')
+  // createRoom 구독
+  createRoom(@MessageBody() data) {
+    // createRoom 핸들러 생성
+    const { nickname, room } = data;
+    // data 에서 nickname, room 구조분해 할당
+    this.rooms.push(room);
+    // 배열에 room push
+    this.server.emit('room', this.rooms);
+    // room 이벤트로 채팅방 리스트 전송
+  }
+}
+```
+
+이제 `room` 을 생성할수 있게 되었다.
+해당 `room` 에 `join` 하고, 채팅방에 새로운 유저가 들어온다면  
+해당 유저가 들어왔다고 알려주어야 한다.
+
+```html
+<div>
+  <h2>공지</h2>
+  <div id="notice"></div>
+</div>
+```
+
+공지하는 부분을 `html` 에 추가한다
+그리고 `script.js` 에 `joinRoom` 함수를 추가한다
+
+`script.js`
+
+```js
+
+...
+let currentRoom = '';
+
+...
+function joinRoom(room) {
+  roomSocket.emit('joinRoom', { room, nickname, toLeaveRoom: currentRoom });
+
+  currentRoom = room;
+}
+
+```
+
+다음은 서버에 `joinRoom` 핸들러 메서드를 생성한다
+
+`app.gateway.ts`
+
+```ts
+
+  @SubscribeMessage('joinRoom')
+  // 방입장시 실행되는 핸들러 메서드
+  JoinRoomHandler(client: Socket, data) {
+    const { nickname, room, toLeaveRoom } = data;
+    client.leave(toLeaveRoom);
+    this.chatGateway.server.emit('notice', {
+      message: `${nickname} 님이 ${room} 방을 나갔습니다.`,
+    });
+    client.join(room);
+  }
+
+```
+
+`sendMessage` 를의 내용을 수정한다.
+
+`script.js`
+
+```ts
+// room 에 join
+function joinRoom(room) {
+  const chat = document.getElementById('chat');
+  chat.innerHTML = '';
+  roomSocket.emit('joinRoom', { room, nickname, toLeaveRoom: currentRoom });
+
+  currentRoom = room;
+}
+
+// message 를 보내는 함수
+function sendMessage() {
+  // currentRoom 이 없다면 return;
+  if (currentRoom == '') {
+    alert('방을 선택해주세요.');
+    return;
+  }
+  const message = document.querySelector('#message').value;
+  const chat = document.querySelector('#chat');
+  const div = document.createElement('div');
+  // message 의 value 값과, nickname, room 데이터를 보낼 객체
+  const data = { message, nickname, room: currentRoom };
+
+  // div 에 innerHTML 을 사용하여, `message` 생성
+  div.innerHTML = `<div>나: ${message}</div>`;
+  // div#chat 에 div append
+  chat.appendChild(div);
+  // roomSocket 의 `message` 핸들러 실행
+  roomSocket.emit('message', data);
+}
+
+// 채팅방 내에서 대화를 나눌때 사용하는 이벤트
+roomSocket.on('message', (data) => {
+  const chat = document.querySelector('#chat');
+  console.log('data');
+  chat.innerHTML = `<div>${data.message}</div>`;
+});
+```
+
+`script` 수정후 `message` 에 해당하는 핸들러를 생성한다.
+
+```ts
+
+  @SubscribeMessage('message')
+  handleMessageToRoom(client: Socket, data) {
+    const { nickname, room, message } = data;
+    console.log(data);
+    // to(방이름).emit(이벤트명, 보내는 메시지) 를
+    // 사용하여 해당 room 에 메시지를 boradcast 하는
+    // 로직이다.
+    // 직관적으로 확인하기 좋다
+    client.broadcast.to(room).emit('message', {
+      message: `${nickname}: ${message}`,
+    });
+  }
+
+```
+
+이제 해당 내용을 실행하면 재대로 처리된다.
