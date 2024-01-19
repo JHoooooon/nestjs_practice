@@ -1,0 +1,15 @@
+{
+  "name": "echo-websocket",
+  "version": "1.0.0",
+  "description": "책에서 동작방법을 알아보았으니, 웹 소켓을 사용해 간단한   애플리케이션을 만들어 본다.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}
